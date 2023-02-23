@@ -1,0 +1,100 @@
+import requests
+from bs4 import BeautifulSoup
+import disnake
+import nmap
+from geolite2 import geolite2
+from disnake.ext import commands
+
+bot = commands.Bot(command_prefix="!", intents=disnake.Intents.all(), activity=disnake.Game(name='By Purpled100#2875'))
+token = "65bf0e6d3c5c28"
+
+@bot.command()
+async def ip(ctx, ip_address: str):
+    reader = geolite2.reader()
+    response = requests.get(f"https://ipinfo.io/{ip_address}?token={token}").json()
+
+    if "error" in response:
+        await ctx.send(f"Error: {response['error']['message']}")
+        return
+
+    # Get detailed information from the IP address using GeoLite2 database
+    geo_data = reader.get(ip_address)
+    country_name = geo_data["country"]["names"]["en"]
+    flag_url = f"https://www.countryflags.io/{geo_data['country']['iso_code']}/flat/64.png"
+    region = geo_data.get("subdivisions", [{}])[0].get("names", {}).get("en")
+    city = geo_data.get("city", {}).get("names", {}).get("en")
+    org = response.get("org", "")
+    device_info = response.get("device", "")
+    os_info = response.get("os", "")
+    time_zone = geo_data.get("location", {}).get("time_zone")
+    date_time = response.get("datetime", "")
+
+    # Create an embed message with all the information
+    embed = disnake.Embed(title=f"IP Information for {ip_address}")
+    embed.set_thumbnail(url=flag_url)
+    embed.add_field(name="Country", value=f"{country_name} :flag_{geo_data['country']['iso_code'].lower()}:")
+    if region:
+        embed.add_field(name="Region", value=region)
+    if city:
+        embed.add_field(name="City", value=city)
+    if org:
+        embed.add_field(name="Organization", value=org)
+    if device_info:
+        embed.add_field(name="Device Info", value=device_info)
+    if os_info:
+        embed.add_field(name="OS Info", value=os_info)
+    if time_zone:
+        embed.add_field(name="Time Zone", value=time_zone)
+    if date_time:
+        embed.add_field(name="Date/Time", value=date_time)
+    await ctx.send(embed=embed)
+
+@bot.command()
+async def scan(ctx, ip_address: str):
+    scanner = nmap.PortScanner()
+    scanner.scan(ip_address, arguments='-sV -p 1-65535')
+
+    for host in scanner.all_hosts():
+        if scanner[host].state() == 'up':
+            for proto in scanner[host].all_protocols():
+                lport = scanner[host][proto].keys()
+                for port in lport:
+                    state = scanner[host][proto][port]['state']
+                    name = scanner[host][proto][port]['name']
+                    product = scanner[host][proto][port]['product']
+                    version = scanner[host][proto][port]['version']
+
+                    if scanner[host][proto][port]['cpe']:
+                        cpe = ", ".join(scanner[host][proto][port]['cpe'])
+                    else:
+                        cpe = ""
+
+                    if "vulns" in scanner[host][proto][port]:
+                        vulns = scanner[host][proto][port]["vulns"]
+                        for vuln in vulns:
+                            vinfo = vulns[vuln]
+                            if "cvss" in vinfo:
+                                cvss = vinfo["cvss"]
+                            else:
+                                cvss = ""
+
+                            embed = disnake.Embed(title=f"Vulnerability Detected: {vuln}", color=0xFF0000)
+                            embed.add_field(name="IP Address", value=host)
+                            embed.add_field(name="Port", value=f"{port}/{proto}")
+                            embed.add_field(name="Name", value=name)
+                            embed.add_field(name="Product", value=product)
+                            embed.add_field(name="Version", value=version)
+                            embed.add_field(name="CPE", value=cpe)
+                            embed.add_field(name="CVSS Score", value=cvss)
+                            await ctx.send(embed=embed)
+                    else:
+                        embed = disnake.Embed(title="No Vulnerabilities Found", color=0x00FF00)
+                        embed.add_field(name="IP Address", value=host)
+                        embed.add_field(name="Port", value=f"{port}/{proto}")
+                        embed.add_field(name="Name", value=name)
+                        embed.add_field(name="Product", value=product)
+                        embed.add_field(name="Version", value=version)
+                        embed.add_field(name="CPE", value=cpe)
+                        await ctx.send(embed=embed)
+
+bot.run("token")
